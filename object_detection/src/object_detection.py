@@ -1,66 +1,175 @@
 #!/usr/bin/env python
 import rospy
 import open3d as o3d
+#from open3d.geometry import crop_point_cloud
 from sensor_msgs.msg import PointCloud2
 import sensor_msgs.point_cloud2 as pc2
 import ros_numpy
 import numpy as np
 import random
 import time
+import matplotlib.pyplot as plt
+import math
+
+min_bound = np.ndarray([3, 1])
+max_bound = np.ndarray([3, 1])
 
 def callback(data):
+    tic()
     pc = ros_numpy.numpify(data)
     points=np.zeros((pc.shape[0],3))
     points[:,0]=pc['x']
     points[:,1]=pc['y']
     points[:,2]=pc['z']
     points = (np.array(points, dtype=np.float32))
-    points = RemoveNan(points)
-    downsampled = DownSample(points, voxel_size=0.01)
-    #print('1: ',len(downsampled))
-    points = RemoveNoiseStatistical(downsampled, nb_neighbors=500, std_ratio=0.1)
-    #points = NumpyToPCD(points)
-    plane_list = DetectMultiPlanes(points)
-    # print(len(plane_list))
-    #print(plane_list[0][1])
-    planes = []
-    #colors = []
-    i = 0
-    for _, plane in plane_list:
-        # i+=1
-        # r = random.random()
-        # g = random.random()
-        # b = random.random()
-        # print(plane)
-        # color = np.zeros((plane.shape[0], plane.shape[1]))
-        # color[:, 0] = r
-        # color[:, 1] = g
-        # color[:, 2] = b
 
+    origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
+    
+
+    """raw camera output
+    Args:
+        pcd (open3d.geometry.PointCloud): 
+    Returns:
+        pcd (open3d.geometry.PointCloud): 
+    
+    """
+    #o3d.visualization.draw_geometries([NumpyToPCD(downsampled),origin])
+
+    # points = RemoveNoiseStatistical(downsampled, nb_neighbors=1000, std_ratio=0.01)
+    points = RemoveNan(points)
+    point_original = NumpyToPCD(points)
+    point_original.paint_uniform_color([1, 0.2, 1])
+    downsampled_original = NumpyToPCD(DownSample(PCDToNumpy(point_original), voxel_size=0.01))
+    #downsampled_original = o3d.geometry.PointCloud.remove_radius_outlier(downsampled_original,5,0.01)
+    (downsampled_original).paint_uniform_color([0, 0.5, 1])
+    
+    """filterd camera output
+    Args:
+        pcd (open3d.geometry.PointCloud): 
+    Returns:
+        pcd (open3d.geometry.PointCloud):  
+    
+    """
+    #o3d.visualization.draw_geometries([downsampled_original[0],origin])
+    #print('Size of original pointcloud: ', NumpyToPCD(points))
+    """detect planes on original pointcloud"""
+    plane_list = DetectMultiPlanes(points, min_ratio=0.9, threshold=0.01, init_n=20000, iterations=100)
+
+    planes = []
+    boxes = []
+    """find boxes for planes"""
+    for _, plane in plane_list:
+        box = NumpyToPCD(plane).get_axis_aligned_bounding_box()
+        #.get_axis_aligned_bounding_box()
         planes.append(plane)
-        #colors.append(color)
+        boxes.append(box)
+    #print('Planes detected: ',len(boxes))
     
     planes = (np.concatenate(planes, axis=0))
     points = (np.array(planes, dtype=np.float32))
-    points = RemoveNan(points)
+    
     downsampled = DownSample(points, voxel_size=0.01)
     planes = (NumpyToPCD(downsampled))
-    #colors = NumpyToPCD(np.concatenate(colors, axis=0))
-    #DrawResult(planes, colors)
-    # plane_model, inliers = points.segment_plane(distance_threshold=0.01,
-    #                                      ransac_n=3,
-    #                                      num_iterations=1000)
-    # [a, b, c, d] = plane_model
-    # print(f"Plane equation: {a:.2f}x + {b:.2f}y + {c:.2f}z + {d:.2f} = 0")
-
-    # inlier_cloud = points.select_by_index(inliers)
-    # print(inlier_cloud)
-    # inlier_cloud.paint_uniform_color([1.0, 0, 0])
-    # outlier_cloud = points.select_by_index(inliers, invert=True)
-    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
-    size=0.2, origin=[0, 0, 0])
-    o3d.visualization.draw_geometries([planes,mesh_frame])
+    #planes = (NumpyToPCD(planes))
+    planes.paint_uniform_color([0.7, 0.8, 0.2])
     
+    
+    
+    """safety zones"""
+    zone_size = 0.3
+    original_box = DrawBoxAtPoint(0,1,lenght=6, r=0, g=1 , b=0.3)
+    original_box_1 = DrawBoxAtPoint(0,1,lenght=zone_size * 1, r=1, g=0 , b=0)
+    original_box_2 = DrawBoxAtPoint(0,1,lenght=zone_size * 2, r=1, g=0.2 , b=0)
+    original_box_3 = DrawBoxAtPoint(0,1,lenght=zone_size * 3, r=1, g=0.4 , b=0)
+    original_box_4 = DrawBoxAtPoint(0,1,lenght=zone_size * 4, r=1, g=0.6 , b=0)
+    original_box_5 = DrawBoxAtPoint(0,1,lenght=zone_size * 5, r=1, g=0.8 , b=0)
+    original_box_6 = DrawBoxAtPoint(0,1,lenght=zone_size * 6, r=1, g=1 , b=0)
+   
+    """extract objects from plane in specific zone"""
+    original_box_PCD = NumpyToPCD(np.array((original_box_2.points), dtype=np.float32)).get_oriented_bounding_box()
+    cropped_box_original = o3d.geometry.PointCloud.crop(downsampled_original,original_box_PCD)
+    cropped_plane_original = o3d.geometry.PointCloud.crop(cropped_box_original,boxes[0])
+                 
+    w, index = PlaneRegression(PCDToNumpy(cropped_box_original),0.01, 20, 500)
+    outlier =  o3d.geometry.PointCloud.select_down_sample(cropped_box_original,index,invert=True)
+    
+    cropped_box_original = PCDToNumpy(outlier)
+    cropped_box_original = RemoveNoiseStatistical(cropped_box_original, nb_neighbors=200, std_ratio=0.01)
+    cropped_plane_original = PCDToNumpy(cropped_plane_original)
+    print('Zaznane tocke na zeljenem podrocju: ', len(cropped_box_original))
+    cropped_box_original = RemoveNan(cropped_box_original)
+    #print(len((cropped_box_original[~np.any((cropped_box_original) == (cropped_plane_original),axis=0)])[0]))
+    
+    
+    """boxes for objects in specific zone"""
+    # object_list = DetectMultiPlanes((cropped_box_original), min_ratio=0.05, threshold=0.05, init_n=3, iterations=1000)
+
+    # objects = []
+    # boxes_object = []
+    # for _, detect_object in object_list:
+    #     box_object = NumpyToPCD(detect_object).get_oriented_bounding_box()
+    #     objects.append(detect_object)
+    #     boxes_object.append(box_object)
+
+    # print(len(boxes_object))
+
+    # objects = (np.concatenate(objects, axis=0))
+    # points = (np.array(objects, dtype=np.float32))
+    
+    # downsampled = DownSample(points, voxel_size=0.01)
+    # objects = (NumpyToPCD(downsampled))
+    # #objects = (NumpyToPCD(objects))
+    # objects.paint_uniform_color([1, 0.2, 1])
+
+    cropped_box_original = NumpyToPCD(cropped_box_original)
+    cropped_box_original.paint_uniform_color([0.0, 0.8, 1])
+    toc()
+    # o3d.visualization.draw_geometries([planes,
+    # origin,original_box,original_box_1,original_box_2,original_box_3,original_box_4,
+    # original_box_5,original_box_6,cropped_box_original], width=1000, height=1000, left=50, top=50)
+   
+    
+        
+def DrawBoxAtPoint(center, edgeLength, lenght, r, g, b):
+    #points = np.array([[0, -0.05, 0], [-0.05, -0.05, 0], [1, -1, 1], [-1, -1, 1], [0.05, 0.05, 0], [-0.05, 0.05, 0],[1, 1, 1], [-1, 1, 1]], dtype=np.float64)
+    x = lenght * np.sin(43.5/180*math.pi)
+    y = lenght * np.sin(29.0/180*math.pi)
+    #print(x,y)
+    points = np.array([[0, 0, 0], [0, 0, 0], [x, -y, lenght], [-x, -y, lenght], [0, 0, 0], [0, 0, 0],[x, y, lenght], [-x, y, lenght]], dtype=np.float64)
+    
+    for i in range(len(points)):
+        point = points[i]*edgeLength
+        points[i] = np.add(point, center-edgeLength/2)
+    lines = [[0, 1], [0, 2], [1, 3], [2, 3], [4, 5], [4, 6], [5, 7], [6, 7],
+                [0, 4], [1, 5], [2, 6], [3, 7]]
+    colors = [[r, g, b] for i in range(len(lines))]
+    line_set = o3d.geometry.LineSet()
+    line_set.points = o3d.utility.Vector3dVector(points)
+    line_set.lines = o3d.utility.Vector2iVector(lines)
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+    return line_set
+
+def TicTocGenerator():
+    # Generator that returns time differences
+    ti = 0           # initial time
+    tf = time.time() # final time
+    while True:
+        ti = tf
+        tf = time.time()
+        yield tf-ti # returns the time difference
+
+TicToc = TicTocGenerator() # create an instance of the TicTocGen generator
+
+# This will be the main function through which we define both tic() and toc()
+def toc(tempBool=True):
+    # Prints the time difference yielded by generator instance TicToc
+    tempTimeInterval = next(TicToc)
+    if tempBool:
+        print( "Elapsed time: %f seconds.\n" %tempTimeInterval )
+
+def tic():
+    # Records a time in TicToc, marks the beginning of a time interval
+    toc(False)
 
 def PCDToNumpy(pcd):
     """  convert open3D point cloud to numpy ndarray
@@ -96,7 +205,7 @@ def RemoveNan(points):
 
     return points[~np.isnan(points[:, 0])]
 
-def RemoveNoiseStatistical(pc, nb_neighbors=20, std_ratio=2.0):
+def RemoveNoiseStatistical(pc, nb_neighbors, std_ratio):
     """ remove point clouds noise using statitical noise removal method
     Args:
         pc (ndarray): N x 3 point clouds
@@ -125,7 +234,7 @@ def DownSample(pts, voxel_size):
 
     return PCDToNumpy(p)
 
-def PlaneRegression(points, threshold=0.01, init_n=3, iter=1000):
+def PlaneRegression(points, threshold, init_n, iter):
     """ plane regression using ransac
     Args:
         points (ndarray): N x3 point clouds
@@ -140,11 +249,10 @@ def PlaneRegression(points, threshold=0.01, init_n=3, iter=1000):
 
     w, index = pcd.segment_plane(
         threshold, init_n, iter)
-    #inlier_cloud = points.select_by_index(index)
-    #outlier_cloud = points.select_by_index(index, invert=True)
+    #outlier = pcd.select_by_index(index,invert=True)
     return w, index
 
-def DetectMultiPlanes(points, min_ratio=0.05, threshold=0.01, iterations=1000):
+def DetectMultiPlanes(points, min_ratio, threshold, init_n, iterations):
     """ Detect multiple planes from given point clouds
     Args:
         points (np.ndarray): 
@@ -161,7 +269,7 @@ def DetectMultiPlanes(points, min_ratio=0.05, threshold=0.01, iterations=1000):
 
     while count < (1 - min_ratio) * N:
         w, index = PlaneRegression(
-            target, threshold=threshold, init_n=3, iter=iterations)
+            target, threshold, init_n, iterations)
     
         count += len(index)
         plane_list.append((w, target[index]))
@@ -179,3 +287,4 @@ def DrawResult(points,colors):
 rospy.init_node('listener', anonymous=True)
 rospy.Subscriber("/camera/depth/color/points", PointCloud2, callback)
 rospy.spin()
+
