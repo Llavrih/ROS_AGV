@@ -23,82 +23,83 @@ def callback(data):
     points[:,2]=pc['z']
     points = (np.array(points, dtype=np.float32))
 
+    original_box = DrawBoxAtPoint(0.5,1,lenght=2, r=0, g=1 , b=0.3)
+    original_box_PCD = NumpyToPCD(np.array((original_box.points), dtype=np.float32)).get_oriented_bounding_box()
     origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
     
-
-    """raw camera output
-    Args:
-        pcd (open3d.geometry.PointCloud): 
-    Returns:
-        pcd (open3d.geometry.PointCloud): 
-    
-    """
-    #o3d.visualization.draw_geometries([NumpyToPCD(downsampled),origin])
-
-    # points = RemoveNoiseStatistical(downsampled, nb_neighbors=1000, std_ratio=0.01)
-    points = RemoveNan(points)
     point_original = NumpyToPCD(points)
-    point_original.paint_uniform_color([1, 0.2, 1])
-    downsampled_original = NumpyToPCD(DownSample(PCDToNumpy(point_original), voxel_size=0.01))
-    #downsampled_original = o3d.geometry.PointCloud.remove_radius_outlier(downsampled_original,5,0.01)
+    print(point_original)
+    point_original = o3d.geometry.PointCloud.crop(point_original,original_box_PCD)
+    downsampled_original = NumpyToPCD(DownSample(PCDToNumpy(point_original), voxel_size=0.015))
     (downsampled_original).paint_uniform_color([0, 0.5, 1])
-    
-    """filterd camera output
-    Args:
-        pcd (open3d.geometry.PointCloud): 
-    Returns:
-        pcd (open3d.geometry.PointCloud):  
-    
-    """
-    #o3d.visualization.draw_geometries([downsampled_original[0],origin])
-    #print('Size of original pointcloud: ', NumpyToPCD(points))
-    """detect planes on original pointcloud"""
-    plane_list = DetectMultiPlanes(points, min_ratio=0.9, threshold=0.01, init_n=20000, iterations=100)
+    #o3d.visualization.draw_geometries([downsampled_original,origin])
 
+    """detect planes on original pointcloud"""
+    plane_list, index_arr = DetectMultiPlanes(PCDToNumpy(downsampled_original), min_ratio=0.5, threshold=0.01, init_n=int(len(PCDToNumpy(downsampled_original))*0.5), iterations=100)
+    #print("Una areja", index_arr)
     planes = []
     boxes = []
     """find boxes for planes"""
     for _, plane in plane_list:
-        box = NumpyToPCD(plane).get_axis_aligned_bounding_box()
+        box = NumpyToPCD(plane).get_oriented_bounding_box()
         #.get_axis_aligned_bounding_box()
         planes.append(plane)
         boxes.append(box)
-    #print('Planes detected: ',len(boxes))
+    print('Planes detected: ',len(boxes))
     
-    planes = (np.concatenate(planes, axis=0))
-    points = (np.array(planes, dtype=np.float32))
-    
-    downsampled = DownSample(points, voxel_size=0.01)
-    planes = (NumpyToPCD(downsampled))
-    #planes = (NumpyToPCD(planes))
+    planes = NumpyToPCD(np.concatenate(planes, axis=0))
+    #planes = (NumpyToPCD(DownSample((np.array(planes, dtype=np.float32)), voxel_size=0.01)))
     planes.paint_uniform_color([0.7, 0.8, 0.2])
     
-    
-    
+   # print(len(index_arr[1]))
+    index_arr_new  =[]
+    for i in range(len(index_arr)):
+        index_arr_new = index_arr_new + index_arr[i]
+    #print("index arr new",(index_arr_new))    
+    outlier =  o3d.geometry.PointCloud.select_by_index(downsampled_original,index_arr_new,invert=True)
+        
+   
+
     """safety zones"""
     zone_size = 0.3
-    original_box = DrawBoxAtPoint(0,1,lenght=6, r=0, g=1 , b=0.3)
-    original_box_1 = DrawBoxAtPoint(0,1,lenght=zone_size * 1, r=1, g=0 , b=0)
-    original_box_2 = DrawBoxAtPoint(0,1,lenght=zone_size * 2, r=1, g=0.2 , b=0)
-    original_box_3 = DrawBoxAtPoint(0,1,lenght=zone_size * 3, r=1, g=0.4 , b=0)
-    original_box_4 = DrawBoxAtPoint(0,1,lenght=zone_size * 4, r=1, g=0.6 , b=0)
-    original_box_5 = DrawBoxAtPoint(0,1,lenght=zone_size * 5, r=1, g=0.8 , b=0)
-    original_box_6 = DrawBoxAtPoint(0,1,lenght=zone_size * 6, r=1, g=1 , b=0)
+    
+    original_box_1 = DrawBoxAtPoint(0.5,1,lenght=zone_size * 1, r=1, g=0 , b=0)
+    original_box_2 = DrawBoxAtPoint(0.5,1,lenght=zone_size * 2, r=1, g=0.2 , b=0)
+    original_box_3 = DrawBoxAtPoint(0.5,1,lenght=zone_size * 3, r=1, g=0.4 , b=0)
+    original_box_4 = DrawBoxAtPoint(0.5,1,lenght=zone_size * 4, r=1, g=0.6 , b=0)
+    original_box_5 = DrawBoxAtPoint(0.5,1,lenght=zone_size * 5, r=1, g=0.8 , b=0)
+    original_box_6 = DrawBoxAtPoint(0.5,1,lenght=zone_size * 6, r=1, g=1 , b=0)
    
     """extract objects from plane in specific zone"""
-    original_box_PCD = NumpyToPCD(np.array((original_box_2.points), dtype=np.float32)).get_oriented_bounding_box()
+    original_box_PCD = NumpyToPCD(np.array((original_box_6.points), dtype=np.float32)).get_oriented_bounding_box()
     cropped_box_original = o3d.geometry.PointCloud.crop(downsampled_original,original_box_PCD)
-    cropped_plane_original = o3d.geometry.PointCloud.crop(cropped_box_original,boxes[0])
-                 
-    w, index = PlaneRegression(PCDToNumpy(cropped_box_original),0.01, 20, 500)
-    outlier =  o3d.geometry.PointCloud.select_down_sample(cropped_box_original,index,invert=True)
     
-    cropped_box_original = PCDToNumpy(outlier)
-    cropped_box_original = RemoveNoiseStatistical(cropped_box_original, nb_neighbors=200, std_ratio=0.01)
-    cropped_plane_original = PCDToNumpy(cropped_plane_original)
-    print('Zaznane tocke na zeljenem podrocju: ', len(cropped_box_original))
-    cropped_box_original = RemoveNan(cropped_box_original)
-    #print(len((cropped_box_original[~np.any((cropped_box_original) == (cropped_plane_original),axis=0)])[0]))
+    """Vmesna resitev !!!!!!!!!!!!"""
+    cropped_plane_original = o3d.geometry.PointCloud.crop(cropped_box_original,boxes[0])
+    cropped_plane_original_2 = o3d.geometry.PointCloud.crop(cropped_box_original,boxes[1])
+    cropped_plane_original.paint_uniform_color([1, 0.8, 1])
+    cropped_plane_original_2.paint_uniform_color([1, 0.6, 1])
+    #o3d.visualization.draw_geometries([cropped_box_original,cropped_plane_original,cropped_plane_original_2], width=1000, height=1000, left=50, top=50)
+    #o3d.visualization.draw_geometries([cropped_box_original,cropped_plane_original_2], width=1000, height=1000, left=50, top=50)
+    #o3d.visualization.draw_geometries([cropped_box_original,cropped_plane_original], width=1000, height=1000, left=50, top=50)
+    #cropped_plane_original = o3d.geometry.PointCloud.crop(cropped_box_original,boxes[2])
+    # print(downsampled_original)  
+    # print(cropped_box_original)   
+    #cropped_box_original = RemoveNoiseStatistical(PCDToNumpy(cropped_box_original), nb_neighbors=100, std_ratio=0.01)         
+    #cropped_box_original = NumpyToPCD(cropped_box_original)
+    # print(cropped_box_original)
+    # w, index = PlaneRegression(PCDToNumpy(cropped_box_original),threshold=0.01, init_n=int(len(PCDToNumpy(cropped_box_original))*0.1), iter=1000)
+    
+    # #o3d.visualization.draw_geometries([outlier], width=1000, height=1000, left=50, top=50)
+   
+    # cropped_box_original = PCDToNumpy(outlier)
+    # distance_array = DistanceCalculator(cropped_box_original)
+    # #print('Minimalna distanca: ', min(distance_array))
+    # #cropped_box_original = RemoveNoiseStatistical(cropped_box_original, nb_neighbors=10, std_ratio=0.05)
+    # cropped_plane_original = PCDToNumpy(cropped_plane_original)
+    # #print('Zaznane tocke na zeljenem podrocju: ', len(cropped_box_original))
+    # cropped_box_original = RemoveNan(cropped_box_original)
+    # #print(len((cropped_box_original[~np.any((cropped_box_original) == (cropped_plane_original),axis=0)])[0]))
     
     
     """boxes for objects in specific zone"""
@@ -121,14 +122,26 @@ def callback(data):
     # #objects = (NumpyToPCD(objects))
     # objects.paint_uniform_color([1, 0.2, 1])
 
-    cropped_box_original = NumpyToPCD(cropped_box_original)
-    cropped_box_original.paint_uniform_color([0.0, 0.8, 1])
+    # cropped_box_original = NumpyToPCD(cropped_box_original)
+    # cropped_box_original.paint_uniform_color([0.0, 0.8, 1])
     toc()
-    # o3d.visualization.draw_geometries([planes,
-    # origin,original_box,original_box_1,original_box_2,original_box_3,original_box_4,
-    # original_box_5,original_box_6,cropped_box_original], width=1000, height=1000, left=50, top=50)
-   
-    
+    o3d.visualization.draw_geometries([boxes[0],boxes[1], outlier, planes,
+    origin,original_box,original_box_1,original_box_2,original_box_3,original_box_4,
+    original_box_5,original_box_6], width=1000, height=1000, left=50, top=50)
+
+def DistanceCalculator(arr):
+    """ calculate distance from oroigin to points
+    Args:
+        points (ndarray): N x 3 point clouds
+    Returns:
+        [ndarray]: distances
+    """ 
+    distance_arr = [] 
+    for i in range(len(arr)):
+        distance = np.sqrt(np.power(arr[i,0],2)+np.power(arr[i,1],2)+np.power(arr[i,2],2))
+        distance_arr.append(distance)
+    return distance_arr
+
         
 def DrawBoxAtPoint(center, edgeLength, lenght, r, g, b):
     #points = np.array([[0, -0.05, 0], [-0.05, -0.05, 0], [1, -1, 1], [-1, -1, 1], [0.05, 0.05, 0], [-0.05, 0.05, 0],[1, 1, 1], [-1, 1, 1]], dtype=np.float64)
@@ -247,8 +260,7 @@ def PlaneRegression(points, threshold, init_n, iter):
 
     pcd = NumpyToPCD(points)
 
-    w, index = pcd.segment_plane(
-        threshold, init_n, iter)
+    w, index = pcd.segment_plane(threshold, init_n, iter)
     #outlier = pcd.select_by_index(index,invert=True)
     return w, index
 
@@ -266,6 +278,8 @@ def DetectMultiPlanes(points, min_ratio, threshold, init_n, iterations):
     N = len(points)
     target = points.copy()
     count = 0
+    index_arr = []
+
 
     while count < (1 - min_ratio) * N:
         w, index = PlaneRegression(
@@ -274,8 +288,9 @@ def DetectMultiPlanes(points, min_ratio, threshold, init_n, iterations):
         count += len(index)
         plane_list.append((w, target[index]))
         target = np.delete(target, index, axis=0)
+        index_arr.append(index)
 
-    return plane_list
+    return plane_list, index_arr
 
 
 def DrawResult(points,colors):
@@ -287,4 +302,3 @@ def DrawResult(points,colors):
 rospy.init_node('listener', anonymous=True)
 rospy.Subscriber("/camera/depth/color/points", PointCloud2, callback)
 rospy.spin()
-
