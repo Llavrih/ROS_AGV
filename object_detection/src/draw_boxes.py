@@ -3,6 +3,7 @@ import rospy
 import open3d as o3d
 #from open3d.geometry import crop_point_cloud
 from sensor_msgs.msg import PointCloud2
+from std_msgs.msg import Float64
 import sensor_msgs.point_cloud2 as pc2
 import ros_numpy
 import numpy as np
@@ -10,11 +11,12 @@ import random
 import time
 import matplotlib.pyplot as plt
 import math
+import message_filters
 
 min_bound = np.ndarray([3, 1])
 max_bound = np.ndarray([3, 1])
 
-def callback(data):
+def callback(data,vel,drive_mode):
     tic()
     pc = ros_numpy.numpify(data)
     points=np.zeros((pc.shape[0],3))
@@ -30,13 +32,12 @@ def callback(data):
     point_original = NumpyToPCD(points)
     #print(point_original)
     point_original = o3d.geometry.PointCloud.crop(point_original,original_box_PCD)
-    downsampled_original = NumpyToPCD(DownSample(PCDToNumpy(point_original), voxel_size=0.02))
+    downsampled_original = NumpyToPCD(DownSample(PCDToNumpy(point_original), voxel_size=0.01))
     (downsampled_original).paint_uniform_color([0, 0.5, 1])
     #o3d.visualization.draw_geometries([downsampled_original,origin])
 
     """detect planes on original pointcloud"""
-    plane_list, index_arr = DetectMultiPlanes(PCDToNumpy(downsampled_original), min_ratio=0.2, threshold=0.05, init_n=3, iterations=100)
-    #print("Una areja", index_arr)
+    plane_list, index_arr = DetectMultiPlanes(PCDToNumpy(downsampled_original), min_ratio=0.2, threshold=0.01, init_n=3, iterations=100)
     planes = []
     boxes = []
     """find boxes for planes"""
@@ -64,10 +65,12 @@ def callback(data):
     load = 0
     h = 0.60 + load
     v_max = 0.3
-    v = 0.3
-
+    v = vel.data
+    print('velocity: ',v)
+    direction = drive_mode.data
+    print('drive_mode: ',direction)
     zone_size = v/v_max
-    direction = -1
+    
     original_box_1 =  DrawBoxForward(0.5,1,v,v_max,direction,lenght=zone_size * 1, r=1, g=0 , b=0)
     original_box_2 =  DrawBoxForward(0.5,1,v,v_max,direction,lenght=zone_size * 2, r=1, g=0.2 , b=0.1)
     original_box_3 =  DrawBoxForward(0.5,1,v,v_max,direction,lenght=zone_size * 3, r=1, g=0.4 , b=0.1)
@@ -93,8 +96,8 @@ def callback(data):
     toc()
     o3d.visualization.draw_geometries([objects,planes,
     origin,original_box,original_box_1,original_box_2,original_box_3,original_box_4,
-    original_box_5,original_box_6,AMR_box,cropped_box_original], width=1000, height=1000, left=50, top=50)
-
+    original_box_5,original_box_6,AMR_box], width=1000, height=1000, left=50, top=50)
+    
 def DistanceCalculator(arr):
     """ calculate distance from oroigin to points
     Args:
@@ -153,7 +156,6 @@ def DrawBoxForward(center, edgeLength,v,v_max,direction, lenght, r, g, b):
     y = (lenght * np.sin(29.0/180*math.pi))
     extension = 0
     direction = direction * lenght/5
-    print(direction)
     if (x > 2.1):
         extension = lenght - 2.1 / np.sin(43.5/180*math.pi)
         if direction == 0:
@@ -164,7 +166,7 @@ def DrawBoxForward(center, edgeLength,v,v_max,direction, lenght, r, g, b):
     if x + abs(direction) > x:
         x = (lenght * np.sin(43.5/180*math.pi)) -abs(direction)
         
-    print('x: ',x,'y: ',y,'lenght', lenght, 'extension', extension)
+    #print('x: ',x,'y: ',y,'lenght', lenght, 'extension', extension)
     points = np.array([[0, 0, 0], [0, 0, 0], [x + direction, -y, lenght], [-x+ direction, -y, lenght], [0, 0, 0], [0, 0, 0],[x+ direction, y, lenght], [-x+ direction, y, lenght], [-x+ direction, -y, lenght + extension], [x + direction, -y, lenght + extension],[-x+ direction, y, lenght + extension], [x + direction, y, lenght + extension]], dtype=np.float64)
    
     for i in range(len(points)):
@@ -317,5 +319,10 @@ def DrawResult(points,colors):
     o3d.visualization.draw_geometries([pcd])
 
 rospy.init_node('listener', anonymous=True)
-rospy.Subscriber("/camera/depth/color/points", PointCloud2, callback)
+
+data = message_filters.Subscriber("/camera/depth/color/points", PointCloud2)
+drive_mode = message_filters.Subscriber("/drive_mode", Float64)
+vel = vel = message_filters.Subscriber("/cmd_vel", Float64)
+ts = message_filters.ApproximateTimeSynchronizer([data, vel, drive_mode], 1, 1,True)
+ts.registerCallback(callback)
 rospy.spin()
