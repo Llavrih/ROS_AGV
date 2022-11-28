@@ -66,9 +66,8 @@ def callback(data):
     v_max = 0.3
     v = 0.3
 
-    zone_size = 1
-    direction = 1
-   
+    zone_size = v/v_max
+    direction = -1
     original_box_1 =  DrawBoxForward(0.5,1,v,v_max,direction,lenght=zone_size * 1, r=1, g=0 , b=0)
     original_box_2 =  DrawBoxForward(0.5,1,v,v_max,direction,lenght=zone_size * 2, r=1, g=0.2 , b=0.1)
     original_box_3 =  DrawBoxForward(0.5,1,v,v_max,direction,lenght=zone_size * 3, r=1, g=0.4 , b=0.1)
@@ -77,7 +76,7 @@ def callback(data):
     original_box_6 =  DrawBoxForward(0.5,1,v,v_max,direction,lenght=zone_size * 6, r=1, g=1 , b=0.1)
     AMR_box = DrawAMR(0.5,1,1,r=0, g=0 , b=0)
     """extract objects from plane in specific zone"""
-    original_box_PCD = NumpyToPCD(np.array((original_box_6.points), dtype=np.float32)).get_oriented_bounding_box()
+    original_box_PCD = NumpyToPCD(np.array((original_box_2.points), dtype=np.float32)).get_oriented_bounding_box()
     cropped_box_original = o3d.geometry.PointCloud.crop(downsampled_original,original_box_PCD)
    
 
@@ -94,7 +93,7 @@ def callback(data):
     toc()
     o3d.visualization.draw_geometries([objects,planes,
     origin,original_box,original_box_1,original_box_2,original_box_3,original_box_4,
-    original_box_5,original_box_6,AMR_box], width=1000, height=1000, left=50, top=50)
+    original_box_5,original_box_6,AMR_box,cropped_box_original], width=1000, height=1000, left=50, top=50)
 
 def DistanceCalculator(arr):
     """ calculate distance from oroigin to points
@@ -148,42 +147,25 @@ def DrawAMR(center, edgeLength, lenght, r, g, b):
     line_set.colors = o3d.utility.Vector3dVector(colors)
     return line_set
 
-# def DrawBoxForward(center, edgeLength,v,v_max,direction, lenght, r, g, b):
-#     #points = np.array([[0, -0.05, 0], [-0.05, -0.05, 0], [1, -1, 1], [-1, -1, 1], [0.05, 0.05, 0], [-0.05, 0.05, 0],[1, 1, 1], [-1, 1, 1]], dtype=np.float64)
-#     x = (lenght * np.sin(43.5/180*math.pi))
-#     y = (lenght * np.sin(29.0/180*math.pi))
-#     lenght = lenght 
-#     if x > 2.1:
-#         x = 2.1
-#     print('x: ',x,'y: ',y)
-#     points = np.array([[0, 0, 0], [0, 0, 0], [x, -y, lenght], [-x, -y, lenght], [0, 0, 0], [0, 0, 0],[x, y, lenght], [-x, y, lenght]], dtype=np.float64)
-   
-#     for i in range(len(points)):
-#         point = points[i]*edgeLength
-#         points[i] = np.add(point, center-edgeLength/2)
-#     lines = [[0, 1], [0, 2], [1, 3], [2, 3], [4, 5], [4, 6], [5, 7], [6, 7],
-#                 [0, 4], [1, 5], [2, 6], [3, 7]]
-#     colors = [[r, g, b] for i in range(len(lines))]
-#     line_set = o3d.geometry.LineSet()
-#     line_set.points = o3d.utility.Vector3dVector(points)
-#     line_set.lines = o3d.utility.Vector2iVector(lines)
-#     line_set.colors = o3d.utility.Vector3dVector(colors)
-#     return line_set
-
 def DrawBoxForward(center, edgeLength,v,v_max,direction, lenght, r, g, b):
     #points = np.array([[0, -0.05, 0], [-0.05, -0.05, 0], [1, -1, 1], [-1, -1, 1], [0.05, 0.05, 0], [-0.05, 0.05, 0],[1, 1, 1], [-1, 1, 1]], dtype=np.float64)
     x = (lenght * np.sin(43.5/180*math.pi))
     y = (lenght * np.sin(29.0/180*math.pi))
-    lenght = lenght 
     extension = 0
-    if x > 2.1:
+    direction = direction * lenght/5
+    print(direction)
+    if (x > 2.1):
         extension = lenght - 2.1 / np.sin(43.5/180*math.pi)
-        lenght = 2.1 / np.sin(43.5/180*math.pi)
-        x = 2.1
-        y = (lenght * np.sin(29.0/180*math.pi))
+        if direction == 0:
+            lenght = 2.1 / np.sin(43.5/180*math.pi)
+            x = 2.1
+            y = (lenght * np.sin(29.0/180*math.pi))
+    
+    if x + abs(direction) > x:
+        x = (lenght * np.sin(43.5/180*math.pi)) -abs(direction)
         
     print('x: ',x,'y: ',y,'lenght', lenght, 'extension', extension)
-    points = np.array([[0, 0, 0], [0, 0, 0], [x, -y, lenght], [-x, -y, lenght], [0, 0, 0], [0, 0, 0],[x, y, lenght], [-x, y, lenght], [-x, -y, lenght + extension], [x, -y, lenght + extension],[-x, y, lenght + extension], [x, y, lenght + extension]], dtype=np.float64)
+    points = np.array([[0, 0, 0], [0, 0, 0], [x + direction, -y, lenght], [-x+ direction, -y, lenght], [0, 0, 0], [0, 0, 0],[x+ direction, y, lenght], [-x+ direction, y, lenght], [-x+ direction, -y, lenght + extension], [x + direction, -y, lenght + extension],[-x+ direction, y, lenght + extension], [x + direction, y, lenght + extension]], dtype=np.float64)
    
     for i in range(len(points)):
         point = points[i]*edgeLength
